@@ -221,13 +221,25 @@ class LocalFilesystemAdapter implements FilesystemAdapter, ChecksumProvider
                 $isDirectory = $fileInfo->isDir();
                 $permissions = octdec(substr(sprintf('%o', $fileInfo->getPerms()), -4));
                 $visibility = $isDirectory ? $this->visibility->inverseForDirectory($permissions) : $this->visibility->inverseForFile($permissions);
+                if (false !== ($fileowner =  $fileInfo->getOwner())) {
+                    $fileowner = @posix_getpwuid($fileowner);
+                }
 
-                yield $isDirectory ? new DirectoryAttributes(str_replace('\\', '/', $path), $visibility, $lastModified) : new FileAttributes(
-                    str_replace('\\', '/', $path),
-                    $fileInfo->getSize(),
-                    $visibility,
-                    $lastModified
-                );
+                yield $isDirectory ?
+                    new DirectoryAttributes(
+                        str_replace('\\', '/', $path),
+                        $visibility,
+                        $lastModified,
+                        $fileowner ? ['owner' => $fileowner] : []
+                    ) :
+                    new FileAttributes(
+                        str_replace('\\', '/', $path),
+                        $fileInfo->getSize(),
+                        $visibility,
+                        $lastModified,
+                        null,
+                        $fileowner ? ['owner' => $fileowner] : []
+                    );
             } catch (Throwable $exception) {
                 if (file_exists($pathName)) {
                     throw $exception;
@@ -372,7 +384,13 @@ class LocalFilesystemAdapter implements FilesystemAdapter, ChecksumProvider
         $permissions = $fileperms & 0777;
         $visibility = $this->visibility->inverseForFile($permissions);
 
-        return new FileAttributes($path, null, $visibility);
+        if (false !== ($fileowner = @fileowner($location))) {
+            if (false !== ($fileowner = @posix_getpwuid($fileowner))) {
+                $fileowner = $fileowner['name'];
+            }
+        }
+
+        return new FileAttributes($path, null, $visibility, null, null, $fileowner ? ['owner' => $fileowner] : []);
     }
 
     private function resolveDirectoryVisibility(?string $visibility): int
